@@ -117,7 +117,7 @@ web_thread.start()
 # 2. ARRANCAR EL BOT DE TELEGRAM EN EL HILO PRINCIPAL (Para respetar las señales)
 print(">>> [INICIO] Arrancando bot de Telegram en el hilo principal...", flush=True)
 try:
-    from telegram.sync import app as bot_app
+    from bot_telegram.sync import app as bot_app
     bot_app.run()
 except Exception as e:
     print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
