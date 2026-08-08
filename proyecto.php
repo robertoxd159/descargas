@@ -4,7 +4,6 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once 'config/Database.php';
 require_once 'models/Project.php';
 require_once 'models/User.php';
 
@@ -13,7 +12,6 @@ if (!isset($_GET['id'])) {
     exit;
 }
 
-$db = (new Database())->getConnection();
 $projectModel = new Project($db);
 $userModel = new User($db);
 

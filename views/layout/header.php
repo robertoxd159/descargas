@@ -4,9 +4,7 @@ require_once __DIR__ . '/../../config/Database.php';
 require_once __DIR__ . '/../../models/Setting.php';
 
 // Verificamos si la conexión ya existe en el controlador actual, si no, la creamos
-if (!isset($db)) {
-    $db = (new Database())->getConnection();
-}
+
 $settingModelGlobal = new Setting($db);
 $configSite = $settingModelGlobal->getAll();
 ?>

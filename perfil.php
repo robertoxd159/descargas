@@ -9,11 +9,10 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-require_once 'config/Database.php';
+
 require_once 'models/User.php';
 require_once 'models/Payment.php';
 
-$db = (new Database())->getConnection();
 $userModel = new User($db);
 $paymentModel = new Payment($db);
 

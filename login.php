@@ -8,13 +8,11 @@ if(isset($_SESSION['user_id'])){
     exit;
 }
 
-require_once 'config/Database.php';
 require_once 'models/User.php';
 
 $mensaje = '';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $database = new Database();
     $db = $database->getConnection();
     $user = new User($db);
 

@@ -9,11 +9,9 @@ if(!isset($_SESSION['user_id'])){
     exit;
 }
 
-require_once 'config/Database.php';
 require_once 'models/Payment.php';
 require_once 'models/Setting.php'; // Agregamos el modelo de config
 
-$db = (new Database())->getConnection();
 $payment = new Payment($db);
 $settingModel = new Setting($db);
 $configSite = $settingModel->getAll(); // Traemos las variables

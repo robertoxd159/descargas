@@ -1,9 +1,8 @@
 <?php
 // ajax_search.php
-require_once 'config/Database.php';
+
 require_once 'models/Project.php';
 
-$db = (new Database())->getConnection();
 $project = new Project($db);
 
 $categoria_actual = $_GET['categoria'] ?? null;

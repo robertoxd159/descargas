@@ -9,12 +9,11 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_rol'] !== 'admin') {
     exit;
 }
 
-require_once 'config/Database.php';
+
 require_once 'models/User.php';
 require_once 'models/Payment.php';
 require_once 'models/Setting.php';
 
-$db = (new Database())->getConnection();
 $userModel = new User($db);
 $paymentModel = new Payment($db);
 $settingModel = new Setting($db); // Instanciamos el modelo

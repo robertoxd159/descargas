@@ -11,10 +11,9 @@ if(!isset($_SESSION['user_id']) || $_SESSION['user_rol'] !== 'admin'){
 }
 
 if (isset($_GET['id'])) {
-    require_once 'config/Database.php';
+    
     require_once 'models/Admin.php';
 
-    $db = (new Database())->getConnection();
     $admin = new Admin($db);
     
     $id_pago = intval($_GET['id']);
