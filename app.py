@@ -17,13 +17,14 @@ except RuntimeError:
 web_app = Flask(__name__)
 
 # Conexión a TiDB
+# Conexión fija a TiDB para evitar errores de variables de entorno
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.environ.get("DB_HOST", "gateway01.eu-central-1.prod.aws.tidbcloud.com"), 
+        host="gateway01.eu-central-1.prod.aws.tidbcloud.com", 
         port=4000,
-        user=os.environ.get("DB_USER", "396CdPhsCTxPorF.root"),              
-        password=os.environ.get("DB_PASS", "eTQLFL4CRZkoeu1l"),         
-        database=os.environ.get("DB_NAME", "test"),                          
+        user="396CdPhsCTxPorF.root",              
+        password="eTQLFL4CRZkoeu1l",         
+        database="test",                          
         ssl_disabled=False,
         connect_timeout=10              
     )
