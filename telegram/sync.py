@@ -1,60 +1,90 @@
-# telegram/sync.py
+import os
 import mysql.connector
-from pyrogram import Client
+from pyrogram import Client, filters
 
-# 1. Configuración
-API_ID = 38390744 
-API_HASH = "0679d4905087b36cf2f3feaba830c224"
-GRUPO_ID = -5462752662
+# Obtenemos las credenciales desde las variables de entorno de Render
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+# Usamos la sesión que ya tienes subida (mi_session.session)
+SESSION_NAME = "telegram/mi_session"
 
-app = Client("mi_sesion", api_id=API_ID, api_hash=API_HASH)
+# Inicializamos el cliente de Pyrogram
+app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
 
-async def main():
-    # 2. Conectar a MySQL
-    db = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="premium_downloads"
-    )
+
+def get_db_connection():
+  """Conexión a tu base de datos MySQL"""
+  return mysql.connector.connect(
+      host=os.getenv("DB_HOST", "localhost"),
+      user=os.getenv("DB_USER", "root"),
+      password=os.getenv("DB_PASS", ""),
+      database=os.getenv("DB_NAME", "tu_base_de_datos"),
+  )
+
+
+@app.on_message(filters.document & filters.caption)
+def handle_telegram_upload(client, message):
+  """Se ejecuta automáticamente cada vez que suben un archivo con descripción al grupo"""
+  try:
+    doc = message.document
+    file_id = doc.file_id
+    caption = message.caption
+
+    db = get_db_connection()
     cursor = db.cursor()
 
-    async with app:
-        print("Sincronizando catálogo desde Telegram...")
-        
-        # 3. Leer historial del grupo
-        async for msg in app.get_chat_history(GRUPO_ID):
-            # Solo procesar mensajes que tengan un archivo y texto
-            if msg.document and msg.caption:
-                lineas = msg.caption.split('\n')
-                
-                # Validar que tenga al menos Título, Categoría y URL
-                if len(lineas) >= 3:
-                    titulo = lineas[0].strip()
-                    categoria = lineas[1].strip()
-                    imagen_url = lineas[2].strip()
-                    descripcion = '\n'.join(lineas[3:]).strip()
-                    file_id = msg.document.file_id
-                    msg_id = msg.id
-                    fecha = msg.date.strftime('%Y-%m-%d %H:%M:%S')
+    # Verificar si el archivo ya existe en la base de datos
+    cursor.execute(
+        "SELECT id FROM projects WHERE telegram_file_id = %s", (file_id,)
+    )
+    if cursor.fetchone():
+      print("El archivo ya está registrado en la base de datos.")
+      cursor.close()
+      db.close()
+      return
 
-                    # 4. Insertar o actualizar en MySQL (evita duplicados usando telegram_msg_id)
-                    sql = """
-                        INSERT INTO projects (telegram_msg_id, titulo, descripcion, categoria, imagen_url, file_id, fecha_publicacion)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE 
-                        titulo=VALUES(titulo), descripcion=VALUES(descripcion), 
-                        categoria=VALUES(categoria), imagen_url=VALUES(imagen_url), file_id=VALUES(file_id)
-                    """
-                    try:
-                        cursor.execute(sql, (msg_id, titulo, descripcion, categoria, imagen_url, file_id, fecha))
-                        db.commit()
-                        print(f"✅ Proyecto sincronizado: {titulo}")
-                    except Exception as e:
-                        print(f"❌ Error con {titulo}: {e}")
-                        
-        print("¡Sincronización terminada!")
-        db.close()
+    # Valores por defecto
+    titulo = "Proyecto sin título"
+    categoria = "General"
+    descripcion = caption
+    imagen_url = "https://via.placeholder.com/400x250?text=Sin+Imagen"
+
+    # Parsear el texto del Caption línea por línea
+    lines = caption.split("\n")
+    for line in lines:
+      if line.lower().startswith("título:") or line.lower().startswith(
+          "titulo:"
+      ):
+        titulo = line.split(":", 1)[1].strip()
+      elif line.lower().startswith("categoría:") or line.lower().startswith(
+          "categoria:"
+      ):
+        categoria = line.split(":", 1)[1].strip()
+      elif line.lower().startswith("descripción:") or line.lower().startswith(
+          "descripcion:"
+      ):
+        descripcion = line.split(":", 1)[1].strip()
+      elif line.lower().startswith("imagen:"):
+        imagen_url = line.split(":", 1)[1].strip()
+
+    # Insertar en la base de datos
+    query = """
+            INSERT INTO projects (titulo, categoria, descripcion, telegram_file_id, imagen_url, fecha_publicacion) 
+            VALUES (%s, %s, %s, %s, %s, NOW())
+        """
+    cursor.execute(
+        query, (titulo, categoria, descripcion, file_id, imagen_url)
+    )
+    db.commit()
+
+    cursor.close()
+    db.close()
+    print(f"¡Proyecto sincronizado con éxito: {titulo}!")
+
+  except Exception as e:
+    print(f"Error procesando el archivo de Telegram: {e}")
+
 
 if __name__ == "__main__":
-    app.run(main())
+  print("Iniciando escucha de Telegram...")
+  app.run()
