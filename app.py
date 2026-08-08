@@ -111,22 +111,43 @@ async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_id = documento.file_id
             nombre_archivo = getattr(documento, 'file_name', 'Archivo_Sin_Nombre')
 
-        caption = mensaje.caption or "Sin descripción"
+        caption = mensaje.caption or ""
         
-        categoria = "General"
+        # Valores por defecto
         titulo = nombre_archivo
-        
-        if "[" in caption and "]" in caption:
-            try:
-                parts = caption.split("]")
-                categoria = parts[0].replace("[", "").strip()
-                titulo = parts[1].strip() or nombre_archivo
-            except:
-                pass
+        categoria = "General"
+        descripcion = caption
+
+        # Analizar el texto línea por línea si sigue el formato solicitado
+        if caption:
+            lineas = caption.split('\n')
+            temp_titulo = ""
+            temp_categoria = ""
+            temp_desc = ""
+
+            for linea in lineas:
+                linea_limpia = linea.strip()
+                if linea_limpia.lower().startswith("título:") or linea_limpia.lower().startswith("titulo:"):
+                    temp_titulo = linea_limpia.split(":", 1)[1].strip()
+                elif linea_limpia.lower().startswith("categoría:") or linea_limpia.lower().startswith("categoria:"):
+                    temp_categoria = linea_limpia.split(":", 1)[1].strip()
+                elif linea_limpia.lower().startswith("descripción:") or linea_limpia.lower().startswith("descripcion:"):
+                    temp_desc = linea_limpia.split(":", 1)[1].strip()
+
+            # Si encontró campos específicos, los actualiza
+            if temp_titulo:
+                titulo = temp_titulo
+            if temp_categoria:
+                categoria = temp_categoria
+            if temp_desc:
+                descripcion = temp_desc
 
         imagen_por_defecto = "https://images.unsplash.com/photo-1555066931-4365d14bab8c"
-        guardar_en_tidb(titulo, caption, categoria, imagen_por_defecto, file_id)
-        await mensaje.reply_text("✅ ¡Archivo recibido y sincronizado con tu web automáticamente!")
+        
+        # Guardar en TiDB con los datos limpios
+        guardar_en_tidb(titulo, descripcion, categoria, imagen_por_defecto, file_id)
+        
+        await mensaje.reply_text(f"✅ ¡Proyecto sincronizado!\n📌 Título: {titulo}\n📂 Categoría: {categoria}")
 
 
 # 3. Arranque de los Servicios (Flask en hilo secundario, Telegram en principal)
