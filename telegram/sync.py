@@ -1,23 +1,19 @@
-import asyncio
 import os
-import threading
-import sys
 import mysql.connector
-from flask import Flask, jsonify
+from pyrogram import Client, filters
 
-# Forzar salida inmediata en los logs de Render
-sys.stdout.flush()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SESSION_NAME = os.path.join(BASE_DIR, "mi_sesion")
 
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# Leer variables de entorno en Render
+API_ID = os.environ.get("38390744")
+API_HASH = os.environ.get("0679d4905087b36cf2f3feaba830c224")
 
-web_app = Flask(__name__)
+# ¡ESTA ES LA LÍNEA QUE RENDER NO ENCONTRABA!
+app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
 
-# Función para conectar a TiDB desde la API
 def get_db_connection():
+    # ... tu código de TiDB que pusimos antes ...
     return mysql.connector.connect(
         host=os.environ.get("DB_HOST", "gateway01.eu-central-1.prod.aws.tidbcloud.com"), 
         port=4000,
@@ -58,7 +54,8 @@ if __name__ == "__main__":
 
     print(">>> [2/2] Intentando arrancar el bot de Telegram...", flush=True)
     try:
-        import telegram.sync
-        telegram.sync.app.run()
+        # Importamos directamente la variable 'app' desde el archivo
+        from telegram.sync import app as bot_app
+        bot_app.run()
     except Exception as e:
         print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
