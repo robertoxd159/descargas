@@ -2,23 +2,26 @@ import os
 import mysql.connector
 from pyrogram import Client, filters
 
-# Obtenemos las credenciales desde las variables de entorno de Render
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-# Usamos la sesión que ya tienes subida (mi_session.session)
-SESSION_NAME = "telegram/mi_sesion"
-# Inicializamos el cliente de Pyrogram
+# 1. Forzar la ruta absoluta para que encuentre la sesión sí o sí
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SESSION_NAME = os.path.join(BASE_DIR, "mi_sesion")
+
+# 2. Pon tus datos directamente aquí para la prueba local
+API_ID = "38390744"        # Pon tu API_ID
+API_HASH = "0679d4905087b36cf2f3feaba830c224"    # Pon tu API_HASH
+
 app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
 
-
 def get_db_connection():
-  """Conexión a tu base de datos MySQL"""
-  return mysql.connector.connect(
-      host=os.getenv("DB_HOST", "localhost"),
-      user=os.getenv("DB_USER", "root"),
-      password=os.getenv("DB_PASS", ""),
-      database=os.getenv("DB_NAME", "tu_base_de_datos"),
-  )
+    return mysql.connector.connect(
+        host=os.environ.get("DB_HOST"), 
+        port=4000,
+        user=os.environ.get("DB_USER"),              
+        password=os.environ.get("DB_PASS"),         
+        database=os.environ.get("DB_NAME"),                          
+        ssl_disabled=False,
+        connect_timeout=10              
+    )
 
 
 @app.on_message(filters.document & filters.caption)
