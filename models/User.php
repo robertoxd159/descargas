@@ -2,110 +2,141 @@
 // models/User.php
 
 class User {
-    private $conn;
-    private $table = "users";
+    private $api_url = "https://rzc-telegram-bot.onrender.com/api/usuarios";
 
-    public function __construct($db) {
-        $this->conn = $db;
+    public function __construct($db = null) {
+        // Ya no necesitamos la conexión PDO local, pero mantenemos el parámetro por compatibilidad
+    }
+
+    // Método auxiliar para hacer peticiones POST a la API de Render
+    private function peticionAPI($data) {
+        $options = [
+            'http' => [
+                'header'  => "Content-Type: application/json\r\n",
+                'method'  => 'POST',
+                'content' => json_encode($data),
+                'timeout' => 10,
+            ]
+        ];
+        $context  = stream_context_create($options);
+        $result = @file_get_contents($this->api_url, false, $context);
+        
+        if ($result === FALSE) {
+            return ['success' => false, 'error' => 'No se pudo conectar con el servidor de autenticación'];
+        }
+        
+        return json_decode($result, true);
     }
 
     // Registrar un nuevo usuario
     public function register($nombre, $email, $password) {
-        $query = "INSERT INTO " . $this->table . " (nombre, email, password) VALUES (:nombre, :email, :password)";
-        $stmt = $this->conn->prepare($query);
-
-        // Limpiar datos y cifrar contraseña
         $nombre = htmlspecialchars(strip_tags($nombre));
         $email = htmlspecialchars(strip_tags($email));
+        // Ciframos la contraseña antes de mandarla
         $password_hashed = password_hash($password, PASSWORD_DEFAULT);
 
-        $stmt->bindParam(":nombre", $nombre);
-        $stmt->bindParam(":email", $email);
-        $stmt->bindParam(":password", $password_hashed);
+        $response = $this->peticionAPI([
+            'accion' => 'register',
+            'nombre' => $nombre,
+            'email' => $email,
+            'password' => $password_hashed
+        ]);
 
-        if($stmt->execute()) {
-            return true;
+        return isset($response['success']) && $response['success'];
+    }
+
+    // Verificar si el email ya existe / Autenticar login
+    public function emailExists($email) {
+        $response = $this->peticionAPI([
+            'accion' => 'login_check', // O puedes usar tu lógica de login
+            'email' => $email
+        ]);
+        
+        // Si la API devuelve los datos del usuario, los retornamos igual que PDO
+        if (isset($response['user']) && $response['user']) {
+            return $response['user'];
         }
         return false;
     }
 
-    // Verificar si el email ya existe
-    public function emailExists($email) {
-        $query = "SELECT id, nombre, email, password, rol, premium_hasta FROM " . $this->table . " WHERE email = ? LIMIT 1";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(1, $email);
-        $stmt->execute();
+    // Validar login por email y contraseña (añadido para soportar tu flujo actual)
+    public function login($email, $password) {
+        $response = $this->peticionAPI([
+            'accion' => 'login',
+            'email' => $email,
+            'password' => $password // Nota: Validaremos el hash en Python o aquí
+        ]);
 
-        if($stmt->rowCount() > 0) {
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+        if (isset($response['success']) && $response['success'] && isset($response['user'])) {
+            return $response['user'];
         }
         return false;
     }
 
     public function isPremium($user_id) {
-        $query = "SELECT premium_hasta FROM users WHERE id = ?";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute([$user_id]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        $response = $this->peticionAPI([
+            'accion' => 'get_user',
+            'id' => $user_id
+        ]);
         
-        if ($user && $user['premium_hasta']) {
-            return (strtotime($user['premium_hasta']) > time());
+        if (isset($response['user']) && $response['user'] && $response['user']['premium_hasta']) {
+            return (strtotime($response['user']['premium_hasta']) > time());
         }
         return false;
     }
 
     public function getUserDetails($id) {
-        // Cambiamos 'correo' por 'email'
-        $query = "SELECT nombre, email, rol, premium_hasta FROM users WHERE id = ?";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute([$id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $response = $this->peticionAPI([
+            'accion' => 'get_user',
+            'id' => $id
+        ]);
+        return $response['user'] ?? null;
     }
 
     // Obtener todos los usuarios para el panel
     public function getAllUsers() {
-        $query = "SELECT id, nombre, email, rol, premium_hasta FROM users ORDER BY id DESC";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $response = $this->peticionAPI([
+            'accion' => 'get_all_users'
+        ]);
+        return $response['users'] ?? [];
     }
 
     // Dar o quitar días Premium
     public function updatePremiumStatus($id, $dias) {
-        if ($dias == 0) {
-            $query = "UPDATE users SET premium_hasta = NULL WHERE id = ?";
-            $stmt = $this->conn->prepare($query);
-            return $stmt->execute([$id]);
-        } else {
-            $fecha_vencimiento = date('Y-m-d H:i:s', strtotime("+$dias days"));
-            $query = "UPDATE users SET premium_hasta = ? WHERE id = ?";
-            $stmt = $this->conn->prepare($query);
-            return $stmt->execute([$fecha_vencimiento, $id]);
-        }
+        $response = $this->peticionAPI([
+            'accion' => 'update_premium',
+            'id' => $id,
+            'dias' => $dias
+        ]);
+        return isset($response['success']) && $response['success'];
     }
 
     // Contar usuarios con Premium activo hoy
     public function getActivePremiumCount() {
-        $query = "SELECT COUNT(*) as activos FROM users WHERE premium_hasta IS NOT NULL AND premium_hasta > NOW()";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        $resultado = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $resultado['activos'];
+        $usuarios = $this->getAllUsers();
+        $activos = 0;
+        foreach ($usuarios as $u) {
+            if (!empty($u['premium_hasta']) && strtotime($u['premium_hasta']) > time()) {
+                $activos++;
+            }
+        }
+        return $activos;
     }
 
     // Obtener el hash de la contraseña actual
     public function getPasswordHash($id) {
-        $query = "SELECT password FROM users WHERE id = ?";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute([$id]);
-        return $stmt->fetchColumn(); // Devuelve solo el string de la contraseña
+        $user = $this->getUserDetails($id);
+        return $user['password'] ?? '';
     }
 
     // Actualizar la contraseña
     public function updatePassword($id, $nuevo_hash) {
-        $query = "UPDATE users SET password = ? WHERE id = ?";
-        $stmt = $this->conn->prepare($query);
-        return $stmt->execute([$nuevo_hash, $id]);
+        $response = $this->peticionAPI([
+            'accion' => 'update_password',
+            'id' => $id,
+            'password' => $nuevo_hash
+        ]);
+        return isset($response['success']) && $response['success'];
     }
 }
 ?>
