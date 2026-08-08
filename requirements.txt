@@ -1,4 +1,5 @@
 pyrogram
 tgcrypto
-flask
+Flask
 mysql-connector-python
+python-telegram-bot
