@@ -105,10 +105,14 @@ def api_usuarios():
         if 'cursor' in locals(): cursor.close()
         if 'db' in locals(): db.close()
 
-# ARRANQUE AUTOMÁTICO DEL BOT EN SEGUNDO PLANO (Independiente de cómo lo importe Render)
+# ARRANQUE AUTOMÁTICO DEL BOT EN SEGUNDO PLANO (Con su propio event loop)
 print(">>> [INICIO] Intentando arrancar el bot de Telegram en segundo plano...", flush=True)
 def iniciar_bot():
     try:
+        # Crear y asignar un event loop específico para este hilo secundario
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         from telegram.sync import app as bot_app
         bot_app.run()
     except Exception as e:
