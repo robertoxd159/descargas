@@ -116,3 +116,8 @@ def iniciar_bot():
 
 bot_thread = threading.Thread(target=iniciar_bot, daemon=True)
 bot_thread.start()
+
+# Mantiene el servidor web activo en el puerto que asigna Render
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
