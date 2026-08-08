@@ -16,7 +16,7 @@ except RuntimeError:
 
 web_app = Flask(__name__)
 
-# Configuración de CORS para permitir peticiones desde tu web en InfinityFree
+# Configuración de CORS
 @web_app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -105,23 +105,19 @@ def api_usuarios():
         if 'cursor' in locals(): cursor.close()
         if 'db' in locals(): db.close()
 
-# ARRANQUE AUTOMÁTICO DEL BOT EN SEGUNDO PLANO (Con su propio event loop)
-print(">>> [INICIO] Intentando arrancar el bot de Telegram en segundo plano...", flush=True)
-def iniciar_bot():
-    try:
-        # Crear y asignar un event loop específico para este hilo secundario
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        from telegram.sync import app as bot_app
-        bot_app.run()
-    except Exception as e:
-        print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
-
-bot_thread = threading.Thread(target=iniciar_bot, daemon=True)
-bot_thread.start()
-
-# Mantiene el servidor web activo en el puerto que asigna Render
-if __name__ == "__main__":
+# 1. ARRANCAR FLASK EN SEGUNDO PLANO (Hilo secundario)
+def iniciar_web():
     port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+print(">>> [INICIO] Arrancando servidor web Flask en segundo plano...", flush=True)
+web_thread = threading.Thread(target=iniciar_web, daemon=True)
+web_thread.start()
+
+# 2. ARRANCAR EL BOT DE TELEGRAM EN EL HILO PRINCIPAL (Para respetar las señales)
+print(">>> [INICIO] Arrancando bot de Telegram en el hilo principal...", flush=True)
+try:
+    from telegram.sync import app as bot_app
+    bot_app.run()
+except Exception as e:
+    print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
