@@ -1,22 +1,17 @@
-import asyncio
 import os
 import threading
 import sys
 import subprocess
 import mysql.connector
 from flask import Flask, jsonify, request, send_file
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 sys.stdout.flush()
 
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+# 1. Configuración de Flask
 web_app = Flask(__name__)
 
-# Configuración de CORS
 @web_app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -24,7 +19,6 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-# Conexión fija a TiDB
 def get_db_connection():
     return mysql.connector.connect(
         host="gateway01.eu-central-1.prod.aws.tidbcloud.com", 
@@ -52,23 +46,6 @@ def api_proyectos():
         return jsonify(proyectos)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@web_app.route("/api/bajar_archivo")
-def api_bajar_archivo():
-    file_id = request.args.get("file_id")
-    nombre = request.args.get("nombre", "descarga")
-    if not file_id:
-        return "Falta el ID del archivo", 400
-        
-    temp_file = f"/tmp/{nombre}.zip"
-    script_path = os.path.join(os.path.dirname(__file__), "telegram", "download.py")
-    
-    subprocess.run(["python", script_path, file_id, temp_file])
-    
-    if os.path.exists(temp_file):
-        return send_file(temp_file, as_attachment=True, download_name=f"{nombre}.zip")
-    else:
-        return "Error al descargar el archivo desde Telegram", 500
 
 @web_app.route("/api/usuarios", methods=["POST"])
 def api_usuarios():
@@ -105,19 +82,67 @@ def api_usuarios():
         if 'cursor' in locals(): cursor.close()
         if 'db' in locals(): db.close()
 
-# 1. ARRANCAR FLASK EN SEGUNDO PLANO (Hilo secundario)
+
+# 2. Lógica del Bot de Telegram Integrada
+BOT_TOKEN = "8905133806:AAGiteJIjcInIMVgl186C3ouLKbLs3-i4eU"
+
+def guardar_en_tidb(titulo, descripcion, categoria, imagen_url, telegram_file_id):
+    try:
+        db = get_db_connection()
+        cursor = db.cursor()
+        query = "INSERT INTO projects (titulo, descripcion, categoria, imagen_url, telegram_file_id) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(query, (titulo, descripcion, categoria, imagen_url, telegram_file_id))
+        db.commit()
+        cursor.close()
+        db.close()
+        print(">>> [EXITO] ¡Proyecto guardado automáticamente en TiDB desde Telegram!")
+    except Exception as e:
+        print(f"❌ Error al guardar en TiDB desde el bot: {e}")
+
+async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = update.message
+    documento = mensaje.document or mensaje.video or mensaje.audio or mensaje.photo
+    
+    if documento:
+        if mensaje.photo:
+            file_id = mensaje.photo[-1].file_id
+            nombre_archivo = "Proyecto_Imagen"
+        else:
+            file_id = documento.file_id
+            nombre_archivo = getattr(documento, 'file_name', 'Archivo_Sin_Nombre')
+
+        caption = mensaje.caption or "Sin descripción"
+        
+        categoria = "General"
+        titulo = nombre_archivo
+        
+        if "[" in caption and "]" in caption:
+            try:
+                parts = caption.split("]")
+                categoria = parts[0].replace("[", "").strip()
+                titulo = parts[1].strip() or nombre_archivo
+            except:
+                pass
+
+        imagen_por_defecto = "https://images.unsplash.com/photo-1555066931-4365d14bab8c"
+        guardar_en_tidb(titulo, caption, categoria, imagen_por_defecto, file_id)
+        await mensaje.reply_text("✅ ¡Archivo recibido y sincronizado con tu web automáticamente!")
+
+
+# 3. Arranque de los Servicios (Flask en hilo secundario, Telegram en principal)
 def iniciar_web():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-print(">>> [INICIO] Arrancando servidor web Flask en segundo plano...", flush=True)
-web_thread = threading.Thread(target=iniciar_web, daemon=True)
-web_thread.start()
+if __name__ == "__main__":
+    print(">>> [INICIO] Arrancando servidor web Flask en segundo plano...", flush=True)
+    web_thread = threading.Thread(target=iniciar_web, daemon=True)
+    web_thread.start()
 
-# 2. ARRANCAR EL BOT DE TELEGRAM EN EL HILO PRINCIPAL (Para respetar las señales)
-print(">>> [INICIO] Arrancando bot de Telegram en el hilo principal...", flush=True)
-try:
-    from bot_telegram.sync import app as bot_app
-    bot_app.run()
-except Exception as e:
-    print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
+    print(">>> [INICIO] Arrancando bot de Telegram en el hilo principal...", flush=True)
+    try:
+        bot_app = Application.builder().token(BOT_TOKEN).build()
+        bot_app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, manejar_archivo))
+        bot_app.run_polling()
+    except Exception as e:
+        print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
