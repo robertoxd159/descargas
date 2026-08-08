@@ -1,75 +1,66 @@
 import os
 import mysql.connector
-from pyrogram import Client, filters
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SESSION_NAME = os.path.join(BASE_DIR, "mi_sesion")
+# Token de tu bot de Telegram
+BOT_TOKEN = "8905133806:AAGiteJIjcInIMVgl186C3ouLKbLs3-i4eU"
 
-# Leer variables de entorno en Render
-API_ID = os.environ.get("38390744")
-API_HASH = os.environ.get("0679d4905087b36cf2f3feaba830c224")
+def guardar_en_tidb(titulo, descripcion, categoria, imagen_url, telegram_file_id):
+    try:
+        db = mysql.connector.connect(
+            host="gateway01.eu-central-1.prod.aws.tidbcloud.com", 
+            port=4000,
+            user="396CdPhsCTxPorF.root",              
+            password="eTQLFL4CRZkoeu1l",         
+            database="test",                          
+            ssl_disabled=False,
+            connect_timeout=10
+        )
+        cursor = db.cursor()
+        query = "INSERT INTO projects (titulo, descripcion, categoria, imagen_url, telegram_file_id) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(query, (titulo, descripcion, categoria, imagen_url, telegram_file_id))
+        db.commit()
+        cursor.close()
+        db.close()
+        print(">>> [EXITO] ¡Proyecto guardado automáticamente en TiDB desde Telegram!")
+    except Exception as e:
+        print(f"❌ Error al guardar en TiDB desde el bot: {e}")
 
-app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
+async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = update.message
+    documento = mensaje.document or mensaje.video or mensaje.audio or mensaje.photo
+    
+    if documento:
+        if mensaje.photo:
+            file_id = mensaje.photo[-1].file_id
+            nombre_archivo = "Proyecto_Imagen"
+        else:
+            file_id = documento.file_id
+            nombre_archivo = getattr(documento, 'file_name', 'Archivo_Sin_Nombre')
 
-def get_db_connection():
-    return mysql.connector.connect(
-        host=os.environ.get("DB_HOST", "gateway01.eu-central-1.prod.aws.tidbcloud.com"), 
-        port=4000,
-        user=os.environ.get("DB_USER", "396CdPhsCTxPorF.root"),              
-        password=os.environ.get("DB_PASS", "eTQLFL4CRZkoeu1l"),         
-        database=os.environ.get("DB_NAME", "test"),                          
-        ssl_disabled=False,
-        connect_timeout=10              
-    )
+        caption = mensaje.caption or "Sin descripción"
+        
+        categoria = "General"
+        titulo = nombre_archivo
+        
+        if "[" in caption and "]" in caption:
+            try:
+                parts = caption.split("]")
+                categoria = parts[0].replace("[", "").strip()
+                titulo = parts[1].strip() or nombre_archivo
+            except:
+                pass
 
-@app.on_message(filters.document & filters.caption)
-def handle_telegram_upload(client, message):
-  print("🔥 ¡ALERTA! El bot detectó un archivo con descripción en el grupo.")
-  try:
-    doc = message.document
-    file_id = doc.file_id
-    caption = message.caption
+        imagen_por_defecto = "https://images.unsplash.com/photo-1555066931-4365d14bab8c"
 
-    db = get_db_connection()
-    cursor = db.cursor()
+        guardar_en_tidb(titulo, caption, categoria, imagen_por_defecto, file_id)
+        
+        await mensaje.reply_text("✅ ¡Archivo recibido y sincronizado con tu web automáticamente!")
 
-    # Verificar si el archivo ya existe
-    cursor.execute("SELECT id FROM projects WHERE telegram_file_id = %s", (file_id,))
-    if cursor.fetchone():
-      print("ℹ️ El archivo ya está registrado en la base de datos.")
-      cursor.close()
-      db.close()
-      return
+app = Application.builder().token(BOT_TOKEN).build()
+app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, manejar_archivo))
 
-    # Valores por defecto
-    titulo = "Proyecto sin título"
-    categoria = "General"
-    descripcion = caption
-    imagen_url = "https://via.placeholder.com/400x250?text=Sin+Imagen"
-
-    # Parsear el texto
-    lines = caption.split("\n")
-    for line in lines:
-      if line.lower().startswith("título:") or line.lower().startswith("titulo:"):
-        titulo = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("categoría:") or line.lower().startswith("categoria:"):
-        categoria = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("descripción:") or line.lower().startswith("descripcion:"):
-        descripcion = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("imagen:"):
-        imagen_url = line.split(":", 1)[1].strip()
-
-    # Guardar en TiDB
-    query = """
-            INSERT INTO projects (titulo, categoria, descripcion, telegram_file_id, imagen_url, fecha_publicacion) 
-            VALUES (%s, %s, %s, %s, %s, NOW())
-        """
-    cursor.execute(query, (titulo, categoria, descripcion, file_id, imagen_url))
-    db.commit()
-
-    cursor.close()
-    db.close()
-    print(f"✅ ¡Proyecto sincronizado con éxito en la BD: {titulo}!")
-
-  except Exception as e:
-    print(f"❌ ERROR CRÍTICO AL GUARDAR EN DB: {e}")
+if __name__ == "__main__":
+    print(">>> Bot de Telegram iniciado de manera independiente...", flush=True)
+    app.run_polling()
