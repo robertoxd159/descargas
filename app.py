@@ -1,14 +1,17 @@
 import os
 import threading
 import sys
-import subprocess
+import urllib.request
+import json
 import mysql.connector
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, Response, stream_with_context
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from telegram.ext import CommandHandler
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
 sys.stdout.flush()
+
+# Token del bot
+BOT_TOKEN = "8905133806:AAGiteJIjcInIMVgl186C3ouLKbLs3-i4eU"
 
 # 1. Configuración de Flask
 web_app = Flask(__name__)
@@ -48,6 +51,48 @@ def api_proyectos():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# NUEVA RUTA DE DESCARGA DIRECTA DESDE TELEGRAM
+@web_app.route("/api/bajar_archivo")
+def api_bajar_archivo():
+    file_id = request.args.get("file_id")
+    nombre = request.args.get("nombre", "descarga")
+    if not file_id:
+        return "Falta el ID del archivo", 400
+        
+    try:
+        # 1. Obtener la ruta de descarga desde la API de Telegram
+        get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+        req = urllib.request.Request(get_file_url)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            
+        if not data.get("ok"):
+            return "No se pudo obtener el archivo de Telegram", 404
+            
+        file_path = data["result"]["file_path"]
+        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        
+        # 2. Extraer extensión original y armar nombre de archivo
+        ext = file_path.split('.')[-1] if '.' in file_path else 'zip'
+        filename_final = f"{nombre}.{ext}"
+        
+        # 3. Transmitir el archivo en streaming al usuario
+        def generate():
+            with urllib.request.urlopen(download_url) as file_stream:
+                while True:
+                    chunk = file_stream.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+                    
+        return Response(
+            stream_with_context(generate()),
+            content_type='application/octet-stream',
+            headers={"Content-Disposition": f"attachment; filename=\"{filename_final}\""}
+        )
+    except Exception as e:
+        return f"Error al procesar la descarga: {str(e)}", 500
+
 @web_app.route("/api/usuarios", methods=["POST"])
 def api_usuarios():
     data = request.json
@@ -85,8 +130,6 @@ def api_usuarios():
 
 
 # 2. Lógica del Bot de Telegram Integrada
-BOT_TOKEN = "8905133806:AAGiteJIjcInIMVgl186C3ouLKbLs3-i4eU"
-
 def guardar_en_tidb(titulo, descripcion, categoria, imagen_url, telegram_file_id):
     try:
         db = get_db_connection()
@@ -114,12 +157,10 @@ async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         caption = mensaje.caption or ""
         
-        # Valores por defecto
         titulo = nombre_archivo
         categoria = "General"
         descripcion = caption
 
-        # Analizar el texto línea por línea si sigue el formato solicitado
         if caption:
             lineas = caption.split('\n')
             temp_titulo = ""
@@ -135,26 +176,16 @@ async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif linea_limpia.lower().startswith("descripción:") or linea_limpia.lower().startswith("descripcion:"):
                     temp_desc = linea_limpia.split(":", 1)[1].strip()
 
-            # Si encontró campos específicos, los actualiza
-            if temp_titulo:
-                titulo = temp_titulo
-            if temp_categoria:
-                categoria = temp_categoria
-            if temp_desc:
-                descripcion = temp_desc
+            if temp_titulo: titulo = temp_titulo
+            if temp_categoria: categoria = temp_categoria
+            if temp_desc: descripcion = temp_desc
 
         imagen_por_defecto = "https://images.unsplash.com/photo-1555066931-4365d14bab8c"
-        
-        # Guardar en TiDB con los datos limpios
         guardar_en_tidb(titulo, descripcion, categoria, imagen_por_defecto, file_id)
-        
         await mensaje.reply_text(f"✅ ¡Proyecto sincronizado!\n📌 Título: {titulo}\n📂 Categoría: {categoria}")
 
-# Función para eliminar un proyecto respondiendo al mensaje con /eliminar
 async def eliminar_proyecto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = update.message
-    
-    # Verifica si estás respondiendo a un mensaje anterior
     if mensaje.reply_to_message:
         ref_msg = mensaje.reply_to_message
         documento = ref_msg.document or ref_msg.video or ref_msg.audio or (ref_msg.photo[-1] if ref_msg.photo else None)
@@ -175,14 +206,14 @@ async def eliminar_proyecto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await mensaje.reply_text("⚠️ Este archivo no estaba registrado en la base de datos.")
             except Exception as e:
-                await mensaje.reply_text(f"❌ Error al eliminar de la base de datos: {e}")
+                await mensaje.reply_text(f"❌ Error al eliminar: {e}")
         else:
-            await mensaje.reply_text("⚠️ El mensaje al que respondiste no contiene un archivo multimedia válido.")
+            await mensaje.reply_text("⚠️ El mensaje al que respondiste no contiene un archivo válido.")
     else:
-        await mensaje.reply_text("⚠️ Para eliminar un proyecto, responde al archivo en el grupo escribiendo /eliminar")
+        await mensaje.reply_text("⚠️ Responde al archivo escribiendo /eliminar para borrarlo.")
 
 
-# 3. Arranque de los Servicios (Flask en hilo secundario, Telegram en principal)
+# 3. Arranque de los Servicios
 def iniciar_web():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port, use_reloader=False)
