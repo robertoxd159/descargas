@@ -23,7 +23,10 @@ def get_db_connection():
 
 @app.on_message(filters.document & filters.caption)
 def handle_telegram_upload(client, message):
-  """Se ejecuta automáticamente cada vez que suben un archivo con descripción al grupo"""
+  print(
+      "🔥 ¡ALERTA! El bot detectó un archivo con descripción en el grupo."
+  )  # <-- Esto nos dirá si Telegram responde
+
   try:
     doc = message.document
     file_id = doc.file_id
@@ -37,7 +40,7 @@ def handle_telegram_upload(client, message):
         "SELECT id FROM projects WHERE telegram_file_id = %s", (file_id,)
     )
     if cursor.fetchone():
-      print("El archivo ya está registrado en la base de datos.")
+      print("ℹ️ El archivo ya está registrado en la base de datos.")
       cursor.close()
       db.close()
       return
@@ -78,10 +81,10 @@ def handle_telegram_upload(client, message):
 
     cursor.close()
     db.close()
-    print(f"¡Proyecto sincronizado con éxito: {titulo}!")
+    print(f"✅ ¡Proyecto sincronizado con éxito en la BD: {titulo}!")
 
   except Exception as e:
-    print(f"Error procesando el archivo de Telegram: {e}")
+    print(f"❌ ERROR CRÍTICO AL GUARDAR EN DB: {e}")
 
 
 if __name__ == "__main__":
