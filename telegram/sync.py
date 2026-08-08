@@ -1,95 +1,64 @@
+import asyncio
 import os
+import threading
+import sys
 import mysql.connector
-from pyrogram import Client, filters
+from flask import Flask, jsonify
 
-# 1. Forzar la ruta absoluta para que encuentre la sesión sí o sí
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SESSION_NAME = os.path.join(BASE_DIR, "mi_sesion")
+# Forzar salida inmediata en los logs de Render
+sys.stdout.flush()
 
-# 2. Pon tus datos directamente aquí para la prueba local
-API_ID = "38390744"        # Pon tu API_ID
-API_HASH = "0679d4905087b36cf2f3feaba830c224"    # Pon tu API_HASH
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
+web_app = Flask(__name__)
 
+# Función para conectar a TiDB desde la API
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.environ.get("DB_HOST"), 
+        host=os.environ.get("DB_HOST", "gateway01.eu-central-1.prod.aws.tidbcloud.com"), 
         port=4000,
-        user=os.environ.get("DB_USER"),              
-        password=os.environ.get("DB_PASS"),         
-        database=os.environ.get("DB_NAME"),                          
+        user=os.environ.get("DB_USER", "396CdPhsCTxPorF.root"),              
+        password=os.environ.get("DB_PASS", "eTQLFL4CRZkoeu1l"),         
+        database=os.environ.get("DB_NAME", "test"),                          
         ssl_disabled=False,
         connect_timeout=10              
     )
 
+@web_app.route("/")
+def home():
+    return "Servidor de Telegram y Python activo 24/7!"
 
-@app.on_message(filters.document & filters.caption)
-def handle_telegram_upload(client, message):
-  print(
-      "🔥 ¡ALERTA! El bot detectó un archivo con descripción en el grupo."
-  )  # <-- Esto nos dirá si Telegram responde
+# ¡NUEVO!: Este es el endpoint que consumirá InfinityFree
+@web_app.route("/api/proyectos")
+def api_proyectos():
+    try:
+        db = get_db_connection()
+        # dictionary=True hace que los resultados salgan listos para JSON
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM projects ORDER BY fecha_publicacion DESC")
+        proyectos = cursor.fetchall()
+        cursor.close()
+        db.close()
+        return jsonify(proyectos)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-  try:
-    doc = message.document
-    file_id = doc.file_id
-    caption = message.caption
-
-    db = get_db_connection()
-    cursor = db.cursor()
-
-    # Verificar si el archivo ya existe en la base de datos
-    cursor.execute(
-        "SELECT id FROM projects WHERE telegram_file_id = %s", (file_id,)
-    )
-    if cursor.fetchone():
-      print("ℹ️ El archivo ya está registrado en la base de datos.")
-      cursor.close()
-      db.close()
-      return
-
-    # Valores por defecto
-    titulo = "Proyecto sin título"
-    categoria = "General"
-    descripcion = caption
-    imagen_url = "https://via.placeholder.com/400x250?text=Sin+Imagen"
-
-    # Parsear el texto del Caption línea por línea
-    lines = caption.split("\n")
-    for line in lines:
-      if line.lower().startswith("título:") or line.lower().startswith(
-          "titulo:"
-      ):
-        titulo = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("categoría:") or line.lower().startswith(
-          "categoria:"
-      ):
-        categoria = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("descripción:") or line.lower().startswith(
-          "descripcion:"
-      ):
-        descripcion = line.split(":", 1)[1].strip()
-      elif line.lower().startswith("imagen:"):
-        imagen_url = line.split(":", 1)[1].strip()
-
-    # Insertar en la base de datos
-    query = """
-            INSERT INTO projects (titulo, categoria, descripcion, telegram_file_id, imagen_url, fecha_publicacion) 
-            VALUES (%s, %s, %s, %s, %s, NOW())
-        """
-    cursor.execute(
-        query, (titulo, categoria, descripcion, file_id, imagen_url)
-    )
-    db.commit()
-
-    cursor.close()
-    db.close()
-    print(f"✅ ¡Proyecto sincronizado con éxito en la BD: {titulo}!")
-
-  except Exception as e:
-    print(f"❌ ERROR CRÍTICO AL GUARDAR EN DB: {e}")
-
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 if __name__ == "__main__":
-  print("Iniciando escucha de Telegram...")
-  app.run()
+    print(">>> [1/2] Iniciando servidor web de respaldo...", flush=True)
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    print(">>> [2/2] Intentando arrancar el bot de Telegram...", flush=True)
+    try:
+        import telegram.sync
+        telegram.sync.app.run()
+    except Exception as e:
+        print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
