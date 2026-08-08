@@ -16,6 +16,13 @@ except RuntimeError:
 
 web_app = Flask(__name__)
 
+@web_app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 # Conexión a TiDB
 # Conexión fija a TiDB para evitar errores de variables de entorno
 def get_db_connection():
