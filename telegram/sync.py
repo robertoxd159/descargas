@@ -6,8 +6,7 @@ from pyrogram import Client, filters
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 # Usamos la sesión que ya tienes subida (mi_session.session)
-SESSION_NAME = "telegram/mi_session"
-
+SESSION_NAME = "telegram/mi_sesion"
 # Inicializamos el cliente de Pyrogram
 app = Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH)
 
