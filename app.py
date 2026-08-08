@@ -6,6 +6,7 @@ import mysql.connector
 from flask import Flask, jsonify, request, send_file
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import CommandHandler
 
 sys.stdout.flush()
 
@@ -149,6 +150,37 @@ async def manejar_archivo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await mensaje.reply_text(f"✅ ¡Proyecto sincronizado!\n📌 Título: {titulo}\n📂 Categoría: {categoria}")
 
+# Función para eliminar un proyecto respondiendo al mensaje con /eliminar
+async def eliminar_proyecto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = update.message
+    
+    # Verifica si estás respondiendo a un mensaje anterior
+    if mensaje.reply_to_message:
+        ref_msg = mensaje.reply_to_message
+        documento = ref_msg.document or ref_msg.video or ref_msg.audio or (ref_msg.photo[-1] if ref_msg.photo else None)
+        
+        if documento:
+            file_id = documento.file_id
+            try:
+                db = get_db_connection()
+                cursor = db.cursor()
+                cursor.execute("DELETE FROM projects WHERE telegram_file_id = %s", (file_id,))
+                db.commit()
+                afectados = cursor.rowcount
+                cursor.close()
+                db.close()
+                
+                if afectados > 0:
+                    await mensaje.reply_text("🗑️ ¡Proyecto eliminado de TiDB y de la web con éxito!")
+                else:
+                    await mensaje.reply_text("⚠️ Este archivo no estaba registrado en la base de datos.")
+            except Exception as e:
+                await mensaje.reply_text(f"❌ Error al eliminar de la base de datos: {e}")
+        else:
+            await mensaje.reply_text("⚠️ El mensaje al que respondiste no contiene un archivo multimedia válido.")
+    else:
+        await mensaje.reply_text("⚠️ Para eliminar un proyecto, responde al archivo en el grupo escribiendo /eliminar")
+
 
 # 3. Arranque de los Servicios (Flask en hilo secundario, Telegram en principal)
 def iniciar_web():
@@ -164,6 +196,7 @@ if __name__ == "__main__":
     try:
         bot_app = Application.builder().token(BOT_TOKEN).build()
         bot_app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO, manejar_archivo))
+        bot_app.add_handler(CommandHandler("eliminar", eliminar_proyecto))
         bot_app.run_polling()
     except Exception as e:
         print(f"❌ ERROR FATAL AL ARRANCAR TELEGRAM: {e}", flush=True)
