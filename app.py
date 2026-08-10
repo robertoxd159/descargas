@@ -52,42 +52,7 @@ def api_proyectos():
         return jsonify({"error": str(e)}), 500
 
 # NUEVA RUTA DE DATOS PARA EL PANEL DE ADMINISTRACIÓN
-@web_app.route("/api/admin_data")
-def api_admin_data():
-    try:
-        db = get_db_connection()
-        cursor = db.cursor(dictionary=True)
-        
-        # Estadísticas financieras y de usuarios
-        cursor.execute("SELECT SUM(monto) as total FROM payments WHERE estado='aprobado'")
-        res_total = cursor.fetchone()
-        total = res_total['total'] if res_total and res_total['total'] else 0
-        
-        cursor.execute("SELECT COUNT(*) as cuenta FROM payments WHERE estado='aprobado'")
-        res_ventas = cursor.fetchone()
-        ventas = res_ventas['cuenta'] if res_ventas else 0
-        
-        cursor.execute("SELECT COUNT(*) as cuenta FROM users WHERE is_premium=1")
-        res_premium = cursor.fetchone()
-        premium = res_premium['cuenta'] if res_premium else 0
-        
-        # Listados para las tablas de control
-        cursor.execute("SELECT * FROM users ORDER BY id DESC")
-        usuarios = cursor.fetchall()
-        
-        cursor.execute("SELECT * FROM payments WHERE estado='pendiente' ORDER BY id DESC")
-        pagos = cursor.fetchall()
-        
-        cursor.close()
-        db.close()
-        
-        return jsonify({
-            "stats": {"total": total, "ventas": ventas, "premium": premium},
-            "usuarios": usuarios,
-            "pagos": pagos
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@web_app.route("/api/admin/update_settings", methods=["POST"])
 
 # NUEVA RUTA DE DESCARGA DIRECTA DESDE TELEGRAM
 @web_app.route("/api/bajar_archivo")
