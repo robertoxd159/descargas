@@ -93,7 +93,11 @@ def api_admin_data():
 @web_app.route("/api/admin/update_settings", methods=["POST"])
 def api_admin_update_settings():
     try:
-        data = request.json
+        # force=True es vital para que Flask no bloquee a InfinityFree
+        data = request.get_json(force=True) 
+        if not data:
+            return jsonify({"success": False, "error": "No llegaron los datos desde la web"}), 400
+            
         db = get_db_connection()
         cursor = db.cursor()
         for key, val in data.items():
