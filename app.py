@@ -51,10 +51,100 @@ def api_proyectos():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# NUEVA RUTA DE DATOS PARA EL PANEL DE ADMINISTRACIÓN
-@web_app.route("/api/admin/update_settings", methods=["POST"])
+# RUTA DE DATOS PARA EL PANEL DE ADMINISTRACIÓN
+@web_app.route("/api/admin_data")
+def api_admin_data():
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        
+        # Estadísticas
+        cursor.execute("SELECT SUM(monto) as total, COUNT(*) as ventas FROM payments WHERE estado='aprobado'")
+        res_stats = cursor.fetchone()
+        statsPagos = {"total": res_stats['total'] or 0, "ventas": res_stats['ventas'] or 0}
+        
+        cursor.execute("SELECT COUNT(*) as cuenta FROM users WHERE is_premium=1")
+        usuariosActivos = cursor.fetchone()['cuenta']
+        
+        # Listados
+        cursor.execute("SELECT * FROM users ORDER BY id DESC")
+        usuarios = cursor.fetchall()
+        
+        cursor.execute("SELECT * FROM payments WHERE estado='pendiente' ORDER BY id DESC")
+        pagos_pendientes = cursor.fetchall()
+        
+        # Configuración
+        cursor.execute("SELECT * FROM settings")
+        config = {row["key"]: row["value"] for row in cursor.fetchall()}
+        
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "statsPagos": statsPagos,
+            "usuariosActivos": usuariosActivos,
+            "usuarios": usuarios,
+            "pagos_pendientes": pagos_pendientes,
+            "config": config
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-# NUEVA RUTA DE DESCARGA DIRECTA DESDE TELEGRAM
+@web_app.route("/api/admin/update_settings", methods=["POST"])
+def api_admin_update_settings():
+    try:
+        data = request.json
+        db = get_db_connection()
+        cursor = db.cursor()
+        for key, val in data.items():
+            cursor.execute(
+                "INSERT INTO settings (`key`, `value`) VALUES (%s, %s) ON DUPLICATE KEY UPDATE `value` = %s",
+                (key, val, val)
+            )
+        db.commit()
+        cursor.close()
+        db.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@web_app.route("/api/admin/update_user", methods=["POST"])
+def api_admin_update_user():
+    data = request.json
+    try:
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("UPDATE users SET is_premium=1, premium_hasta=DATE_ADD(NOW(), INTERVAL %s DAY) WHERE id=%s", (data['dias'], data['user_id']))
+        db.commit()
+        cursor.close()
+        db.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@web_app.route("/api/admin/update_payment", methods=["POST"])
+def api_admin_update_payment():
+    data = request.json
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM payments WHERE id=%s", (data['pago_id'],))
+        pago = cursor.fetchone()
+        if pago and pago['estado'] == 'pendiente':
+            if data['accion_pago'] == 'aprobar':
+                cursor.execute("UPDATE payments SET estado='aprobado' WHERE id=%s", (data['pago_id'],))
+                dias = 180 if pago['plan'] == 'semestral' else (365 if pago['plan'] == 'anual' else 30)
+                cursor.execute("UPDATE users SET is_premium=1, premium_hasta=DATE_ADD(NOW(), INTERVAL %s DAY) WHERE id=%s", (dias, pago['user_id']))
+            else:
+                cursor.execute("UPDATE payments SET estado='rechazado' WHERE id=%s", (data['pago_id'],))
+            db.commit()
+        cursor.close()
+        db.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# RUTA DE DESCARGA DIRECTA DESDE TELEGRAM
 @web_app.route("/api/bajar_archivo")
 def api_bajar_archivo():
     file_id = request.args.get("file_id")
@@ -127,7 +217,6 @@ def api_usuarios():
     finally:
         if 'cursor' in locals(): cursor.close()
         if 'db' in locals(): db.close()
-
 
 # 2. Lógica del Bot de Telegram Integrada
 def guardar_en_tidb(titulo, descripcion, categoria, imagen_url, telegram_file_id):
@@ -211,7 +300,6 @@ async def eliminar_proyecto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await mensaje.reply_text("⚠️ El mensaje al que respondiste no contiene un archivo válido.")
     else:
         await mensaje.reply_text("⚠️ Responde al archivo escribiendo /eliminar para borrarlo.")
-
 
 # 3. Arranque de los Servicios
 def iniciar_web():
