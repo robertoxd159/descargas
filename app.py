@@ -51,6 +51,44 @@ def api_proyectos():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# NUEVA RUTA DE DATOS PARA EL PANEL DE ADMINISTRACIÓN
+@web_app.route("/api/admin_data")
+def api_admin_data():
+    try:
+        db = get_db_connection()
+        cursor = db.cursor(dictionary=True)
+        
+        # Estadísticas financieras y de usuarios
+        cursor.execute("SELECT SUM(monto) as total FROM payments WHERE estado='aprobado'")
+        res_total = cursor.fetchone()
+        total = res_total['total'] if res_total and res_total['total'] else 0
+        
+        cursor.execute("SELECT COUNT(*) as cuenta FROM payments WHERE estado='aprobado'")
+        res_ventas = cursor.fetchone()
+        ventas = res_ventas['cuenta'] if res_ventas else 0
+        
+        cursor.execute("SELECT COUNT(*) as cuenta FROM users WHERE is_premium=1")
+        res_premium = cursor.fetchone()
+        premium = res_premium['cuenta'] if res_premium else 0
+        
+        # Listados para las tablas de control
+        cursor.execute("SELECT * FROM users ORDER BY id DESC")
+        usuarios = cursor.fetchall()
+        
+        cursor.execute("SELECT * FROM payments WHERE estado='pendiente' ORDER BY id DESC")
+        pagos = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "stats": {"total": total, "ventas": ventas, "premium": premium},
+            "usuarios": usuarios,
+            "pagos": pagos
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # NUEVA RUTA DE DESCARGA DIRECTA DESDE TELEGRAM
 @web_app.route("/api/bajar_archivo")
 def api_bajar_archivo():
@@ -60,7 +98,6 @@ def api_bajar_archivo():
         return "Falta el ID del archivo", 400
         
     try:
-        # 1. Obtener la ruta de descarga desde la API de Telegram
         get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
         req = urllib.request.Request(get_file_url)
         with urllib.request.urlopen(req) as response:
@@ -72,11 +109,9 @@ def api_bajar_archivo():
         file_path = data["result"]["file_path"]
         download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         
-        # 2. Extraer extensión original y armar nombre de archivo
         ext = file_path.split('.')[-1] if '.' in file_path else 'zip'
         filename_final = f"{nombre}.{ext}"
         
-        # 3. Transmitir el archivo en streaming al usuario
         def generate():
             with urllib.request.urlopen(download_url) as file_stream:
                 while True:
